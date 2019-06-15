@@ -8,6 +8,7 @@ class MyZookeeperBarrierSlave(zkHost: String, zkPort: Int) extends Runnable with
   var requiresInterruption: Boolean = false
   var latch: CountDownLatch = new CountDownLatch(1)
   val zkBarrierPathName = "/zk_barrier"
+  val zk = new ZooKeeper(zkHost + ":" + zkPort, 5000, this)
   override def run = {
     while (true) {
       Thread.sleep(1000)
