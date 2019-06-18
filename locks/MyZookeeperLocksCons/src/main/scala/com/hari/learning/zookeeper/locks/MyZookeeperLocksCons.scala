@@ -29,12 +29,10 @@ class MyZookeeperLocksCons(zkHost: String, zkPort: Int, consCount: Int) extends 
         zk.getChildren(zkLockParent, true).foreach(println)
         child = zk.create(zkLockParent + zkPathSep + "child-", "Child".getBytes, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL)
         println(s"Created child path is $child")
-        val children = zk.getChildren(zkLockParent, true)
-        println("fetched children ")
-        children.foreach(println)
+        val children = zk.getChildren(zkLockParent, true).map(child => zkLockParent + zkPathSep + child)
         Collections.sort(children)
         childPos = children.indexOf(child)
-        println("Position of child node in the list : "+childPos)
+        println("Position of child node in the list : " + childPos)
         if (childPos == 0) {
           // this is the smallest and hence I am the owner of the lock
           print
