@@ -7,7 +7,7 @@ import java.lang.{ Runnable, Comparable }
 import scala.collection.JavaConversions._
 import java.util.Collections
 
-class MyZookeeperLocksCons(zkHost: String, zkPort: Int, consCount: Int) extends Watcher with Runnable {
+class MyZookeeperLocksCons(zkHost: String, zkPort: Int, consCount: Int, sleepTime: Int) extends Watcher with Runnable {
   val zk: ZooKeeper = new ZooKeeper(zkHost + ":" + zkPort, 10000, this)
   val zkLockParent = "/zk_lock"
   val zkPathSep = "/"
@@ -17,16 +17,15 @@ class MyZookeeperLocksCons(zkHost: String, zkPort: Int, consCount: Int) extends 
   var child: String = ""
   var prevNode: String = null
   var childPos: Int = 0
-  if (lockStat != null)
-    zk.delete(zkLockParent, lockStat.getVersion)
-  zk.create(zkLockParent, "Parent ZNode".getBytes, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT)
+  val parentLockStat = zk.exists(zkLockParent, this)
+  if (parentLockStat == null)
+    zk.create(zkLockParent, null, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT)
   override def run: Unit = {
     while (true) {
-      Thread.sleep(1000)
+      Thread.sleep(sleepTime)
       count += 1
       if (count == 5) {
         //create a znode under the lockParent node and check for if there are any smaller children.
-        zk.getChildren(zkLockParent, true).foreach(println)
         child = zk.create(zkLockParent + zkPathSep + "child-", "Child".getBytes, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL)
         println(s"Created child path is $child")
         val children = zk.getChildren(zkLockParent, true).map(child => zkLockParent + zkPathSep + child)
@@ -38,14 +37,18 @@ class MyZookeeperLocksCons(zkHost: String, zkPort: Int, consCount: Int) extends 
           print
         } else {
           // double check if the smallestChild exists
-          println("Another child with smaller seq_num")
-          if (zk.exists(children(childPos - 1), true) != null) {
-            prevNode = children(childPos - 1)
+          prevNode = children(childPos - 1)
+          println(s"Another child with smaller seq_num --> $prevNode")
+          if (zk.exists(prevNode, true) != null) {
+            println(s"Double checked for existence of zNode with smaller seq number and it exists $prevNode")
             lock = new CountDownLatch(1)
             lock.await
           } else
             print
         }
+        val myChild = zk.exists(child, this)
+        zk.delete(child, myChild.getVersion)
+
         count = 0
       }
     }
@@ -54,10 +57,8 @@ class MyZookeeperLocksCons(zkHost: String, zkPort: Int, consCount: Int) extends 
   def print: Unit = {
     for (i <- 0 until 5) {
       println(consCount + " is the owner of the lock ")
-      Thread.sleep(1000)
+      Thread.sleep(sleepTime)
     }
-    val myChild = zk.exists(child, this)
-    zk.delete(child, myChild.getVersion)
   }
 
   override def process(event: WatchedEvent): Unit = {
@@ -68,7 +69,8 @@ class MyZookeeperLocksCons(zkHost: String, zkPort: Int, consCount: Int) extends 
       case NodeDeleted => {
         if (event.getPath.equals(prevNode)) {
           // release the lock
-          lock.countDown()
+          if (lock.getCount > 0)
+            lock.countDown()
         }
       }
       case NodeChildrenChanged => {}
@@ -87,7 +89,8 @@ object MyZookeeperLocksCons {
     val zkHostPort = args(1).toInt
     val executors = Executors.newFixedThreadPool(2)
     val consCount = args(2).toInt
-    executors.submit(new MyZookeeperLocksCons(zkHost, zkHostPort, consCount))
+    val sleepTime = args(3).toInt
+    executors.submit(new MyZookeeperLocksCons(zkHost, zkHostPort, consCount, sleepTime))
   }
 
 }
